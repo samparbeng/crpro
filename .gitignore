@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+
+# Never commit database dumps: legacy data contains customer details.
+*.sql
+!api/prisma/migrations/**/*.sql

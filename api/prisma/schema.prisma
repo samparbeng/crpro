@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum ReservationStatus {
+  PENDING
+  IN_PROGRESS
+  CLOSED
+  CANCELLED
+}
+
+/// Where the vehicle and driver for a reservation come from.
+enum ResourceSource {
+  IN_HOUSE
+  THIRD_PARTY
+}
+
+enum PurchaseOrderStatus {
+  PENDING
+  APPROVED
+  RECEIVED
+  CANCELLED
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique @db.VarChar(50)
+  /// bcrypt hash, or "md5:<hex>" for accounts imported from TransPro (upgraded on next login).
+  passwordHash String   @db.VarChar(100)
+  fullName     String   @db.VarChar(100)
+  designation  String?  @db.VarChar(100)
+  email        String?  @db.VarChar(100)
+  phone        String?  @db.VarChar(30)
+  role         Role     @default(STAFF)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  reservations   Reservation[]
+  purchaseOrders PurchaseOrder[]
+  serviceRecords ServiceRecord[]
+  exchangeRates  ExchangeRate[]
+  invoices       Invoice[]
+}
+
+model VehicleCategory {
+  id   Int    @id @default(autoincrement())
+  code String @unique @db.VarChar(20)
+  name String @db.VarChar(100)
+
+  vehicles     Vehicle[]
+  reservations Reservation[]
+}
+
+model Vehicle {
+  id                  Int       @id @default(autoincrement())
+  regNumber           String    @unique @db.VarChar(20)
+  make                String    @db.VarChar(50)
+  model               String    @db.VarChar(50)
+  categoryId          Int?
+  year                Int?
+  country             String?   @db.VarChar(50)
+  colour              String?   @db.VarChar(50)
+  tyreSize            String?   @db.VarChar(50)
+  chassisNumber       String?   @db.VarChar(50)
+  engineNumber        String?   @db.VarChar(50)
+  transmission        String?   @db.VarChar(30)
+  roadworthyExpiry    DateTime? @db.Date
+  insuranceExpiry     DateTime? @db.Date
+  nextServiceDate     DateTime? @db.Date
+  nextServiceOdometer Int?
+  active              Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  category       VehicleCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  reservations   Reservation[]
+  serviceRecords ServiceRecord[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model Driver {
+  id            Int      @id @default(autoincrement())
+  firstName     String   @db.VarChar(50)
+  lastName      String   @db.VarChar(50)
+  phone         String?  @db.VarChar(30)
+  licenceClass  String?  @db.VarChar(30)
+  designation   String?  @db.VarChar(50)
+  inService     Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  reservations   Reservation[]
+  serviceRecords ServiceRecord[]
+}
+
+/// Priced trip codes (legacy `vehiclerate`). All amounts are USD per day.
+model Rate {
+  id                 Int     @id @default(autoincrement())
+  code               String  @unique @db.VarChar(20)
+  category           String  @db.VarChar(50)
+  description        String  @db.VarChar(255)
+  vehicleUsd         Decimal @db.Decimal(12, 2)
+  levyUsd            Decimal @default(0) @db.Decimal(12, 2)
+  vatUsd             Decimal @default(0) @db.Decimal(12, 3)
+  getFundLevyUsd     Decimal @default(0) @db.Decimal(12, 2)
+  driverAllowanceUsd Decimal @default(0) @db.Decimal(12, 2)
+  fuelUsd            Decimal @default(0) @db.Decimal(12, 2)
+  active             Boolean @default(true)
+
+  reservations Reservation[]
+  invoiceItems InvoiceItem[]
+}
+
+model Reservation {
+  id                Int               @id @default(autoincrement())
+  companyName       String            @db.VarChar(100)
+  contactName       String            @db.VarChar(100)
+  contactPhone      String            @db.VarChar(30)
+  vehicleCategoryId Int?
+  startDate         DateTime          @db.Date
+  endDate           DateTime          @db.Date
+  destination       String            @db.VarChar(100)
+  remarks           String?           @db.VarChar(500)
+  status            ReservationStatus @default(PENDING)
+  source            ResourceSource?
+  driverId          Int?
+  vehicleId         Int?
+  /// Third-party driver / vehicle details when source is THIRD_PARTY.
+  externalDriver    String?           @db.VarChar(100)
+  externalVehicle   String?           @db.VarChar(50)
+  rateId            Int?
+  createdById       Int?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  vehicleCategory VehicleCategory? @relation(fields: [vehicleCategoryId], references: [id], onDelete: SetNull)
+  driver          Driver?          @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  vehicle         Vehicle?         @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  rate            Rate?            @relation(fields: [rateId], references: [id], onDelete: SetNull)
+  createdBy       User?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  invoiceItems    InvoiceItem[]
+
+  @@index([status, startDate])
+  @@index([companyName])
+}
+
+model VendorCategory {
+  id   Int    @id @default(autoincrement())
+  name String @unique @db.VarChar(50)
+
+  vendors Vendor[]
+}
+
+model Vendor {
+  id              Int      @id @default(autoincrement())
+  name            String   @unique @db.VarChar(100)
+  categoryId      Int?
+  contactPerson   String?  @db.VarChar(100)
+  address         String?  @db.VarChar(200)
+  phone           String?  @db.VarChar(50)
+  paymentType     String?  @db.VarChar(30)
+  creditTermDays  Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  category       VendorCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  purchaseOrders PurchaseOrder[]
+}
+
+model PurchaseOrder {
+  id          Int                 @id @default(autoincrement())
+  number      String              @unique @db.VarChar(20)
+  orderDate   DateTime            @db.Date
+  dueDate     DateTime?           @db.Date
+  vendorId    Int
+  vehicleId   Int?
+  status      PurchaseOrderStatus @default(PENDING)
+  notes       String?             @db.VarChar(500)
+  createdById Int?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  vendor    Vendor              @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  vehicle   Vehicle?            @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  createdBy User?               @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  items     PurchaseOrderItem[]
+}
+
+model PurchaseOrderItem {
+  id              Int     @id @default(autoincrement())
+  purchaseOrderId Int
+  description     String  @db.VarChar(255)
+  unit            String? @db.VarChar(50)
+  quantity        Decimal @db.Decimal(10, 2)
+  unitPrice       Decimal @db.Decimal(12, 2)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+}
+
+model ServiceRecord {
+  id             Int      @id @default(autoincrement())
+  vehicleId      Int
+  serviceDate    DateTime @db.Date
+  odometer       Int?
+  garage         String   @db.VarChar(100)
+  garageLocation String?  @db.VarChar(100)
+  driverId       Int?
+  details        String?  @db.VarChar(1000)
+  amount         Decimal  @default(0) @db.Decimal(12, 2)
+  createdById    Int?
+  createdAt      DateTime @default(now())
+
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  driver    Driver? @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  createdBy User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([vehicleId, serviceDate])
+}
+
+/// USD → GHS rate for a given day.
+model ExchangeRate {
+  id            Int      @id @default(autoincrement())
+  effectiveDate DateTime @unique @db.Date
+  usdToGhs      Decimal  @db.Decimal(10, 4)
+  createdById   Int?
+  createdAt     DateTime @default(now())
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+}
+
+/// Pro-forma invoice, priced in USD.
+model Invoice {
+  id              Int      @id @default(autoincrement())
+  number          String   @unique @db.VarChar(20)
+  invoiceDate     DateTime @db.Date
+  customerName    String   @db.VarChar(150)
+  customerAddress String?  @db.VarChar(300)
+  /// Snapshot of the USD → GHS rate when the invoice was raised.
+  usdToGhs        Decimal? @db.Decimal(10, 4)
+  amountPaid      Decimal  @default(0) @db.Decimal(12, 2)
+  notes           String?  @db.VarChar(1000)
+  createdById     Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdBy User?         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  items     InvoiceItem[]
+}
+
+model InvoiceItem {
+  id            Int     @id @default(autoincrement())
+  invoiceId     Int
+  description   String  @db.VarChar(255)
+  quantity      Decimal @db.Decimal(10, 2)
+  unitPrice     Decimal @db.Decimal(12, 3)
+  rateId        Int?
+  reservationId Int?
+
+  invoice     Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  rate        Rate?        @relation(fields: [rateId], references: [id], onDelete: SetNull)
+  reservation Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+}
